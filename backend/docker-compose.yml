@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: orders_db_realtime
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: orders_db
+    ports:
+      - "5432:5432"
+    # CRITICAL: Enables logical decoding for Change Data Capture
+    command: postgres -c wal_level=logical -c max_replication_slots=4 -c max_wal_senders=4
+    volumes:
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
