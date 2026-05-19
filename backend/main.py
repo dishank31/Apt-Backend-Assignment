@@ -1,57 +1,78 @@
+"""
+Application entry point for the Real-Time Orders API.
+
+Bootstraps FastAPI with the CDC worker, CORS middleware,
+and the SSE streaming endpoint.
+"""
+
 import asyncio
 import json
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingHttpResponse
+from fastapi.responses import StreamingResponse
+
+from config import settings
 from cdc_worker import CDCWorker
 
-# Database Configuration (Matches Docker Compose credentials)
-DB_URL = "postgresql://postgres:password@localhost:5432/orders_db"
-cdc_worker = CDCWorker(db_url=DB_URL, slot_name="orders_realtime_slot")
+# Initialize the CDC worker with configuration
+cdc_worker = CDCWorker(
+    db_url=settings.database_url,
+    slot_name=settings.replication_slot_name,
+)
 
-# Lifespan manager to handle the background worker thread
+
 async def lifespan(app: FastAPI):
+    """Manage the CDC background worker lifecycle."""
     bg_task = asyncio.create_task(cdc_worker.start_replication())
     yield
     bg_task.cancel()
 
-app = FastAPI(lifespan=lifespan, title="Real-Time Orders API")
 
-# Enable CORS for local frontend testing
+app = FastAPI(
+    lifespan=lifespan,
+    title="Real-Time Orders API",
+    description="Pushes live database mutations to clients via SSE",
+    version="1.0.0",
+)
+
+# CORS — allow the frontend to connect
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
 @app.get("/health")
 async def health_check():
-    return {"status": "System Operational", "active_connections": len(cdc_worker.listeners)}
+    """Liveness probe with active listener count."""
+    return {
+        "status": "operational",
+        "active_connections": len(cdc_worker.listeners),
+    }
+
 
 @app.get("/api/v1/orders/stream")
 async def stream_orders(request: Request):
-    """Exposes a highly performant, unidirectional Server-Sent Events stream."""
-    client_queue = asyncio.Queue()
+    """Server-Sent Events endpoint — pushes CDC mutations to the browser."""
+    client_queue: asyncio.Queue = asyncio.Queue()
     await cdc_worker.register_listener(client_queue)
 
     async def event_generator():
         try:
             while True:
-                # Break connection if client closes their browser
                 if await request.is_disconnected():
                     break
-                
+
                 try:
-                    # Wait for database mutation with a 1-second timeout
                     data = await asyncio.wait_for(client_queue.get(), timeout=1.0)
                     yield f"data: {json.dumps(data)}\n\n"
                 except asyncio.TimeoutError:
-                    # Send an empty comment pulse to maintain HTTP keep-alive
                     yield ": keep-alive\n\n"
         finally:
-            # Cleanup when client leaves
             await cdc_worker.unregister_listener(client_queue)
 
-    return StreamingHttpResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
