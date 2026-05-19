@@ -86,6 +86,13 @@ This is a **unidirectional** data flow (server → client). SSE is the right too
 | Survives server restart | ❌ No (ephemeral) | ✅ Yes (slot tracks position) |
 | Performance impact | Medium (in-transaction) | Low (async from WAL) |
 
+### Architecture & Scalability Considerations
+This system was built with production scalability and clean code principles in mind:
+- **Asyncio Fan-out**: Pushing updates to 10,000+ connected clients sequentially would block the Python event loop. The `CDCWorker` uses `asyncio.gather()` to push updates to all active queues concurrently.
+- **Connection Efficiency**: SSE requires long-lived open sockets. To scale to massive concurrency, Uvicorn worker counts and OS `ulimit` (max open files) configurations must be tuned.
+- **Microservice Ready**: Currently, the system uses an in-memory `asyncio.Queue` for fan-out. For massive horizontal scaling across multiple FastAPI instances, the `_broadcast()` method can easily be swapped to publish to a Redis Pub/Sub channel.
+- **Separation of Concerns**: HTML, CSS, and JS are decoupled. The CDC pipeline is decoupled from the REST API endpoints. Business logic is independent of the notification transport layer.
+
 ---
 
 ## Quick Start
