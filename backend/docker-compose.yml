@@ -3,14 +3,16 @@ version: '3.8'
 services:
   # ── PostgreSQL with Logical Replication ────────
   postgres:
-    image: postgres:15-alpine
+    build:
+      context: ./database
+      dockerfile: Dockerfile
     container_name: orders_db_realtime
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
       POSTGRES_DB: orders_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     # Enable WAL logical decoding for Change Data Capture
     command: >
       postgres
