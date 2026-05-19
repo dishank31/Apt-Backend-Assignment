@@ -77,10 +77,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount REST API routes
-app.include_router(orders_router)
-
-
 # ── Endpoints ────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -113,3 +109,8 @@ async def stream_orders(request: Request):
             await cdc_worker.unregister_listener(client_queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# Mount REST API routes after fixed endpoints so /api/v1/orders/stream is not
+# captured by the dynamic /api/v1/orders/{order_id} route.
+app.include_router(orders_router)
