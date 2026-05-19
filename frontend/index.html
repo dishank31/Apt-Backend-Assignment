@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Order Dashboard - Atypical Technologies</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h2 { border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        #connection-status { margin-bottom: 20px; font-weight: bold; }
+        
+        .order-card { 
+            background: #1e293b; 
+            border-radius: 8px; 
+            padding: 1.5rem; 
+            margin-bottom: 1rem; 
+            border-left: 5px solid #475569; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        /* Status Colors */
+        .status-pending { border-left-color: #38bdf8; }
+        .status-shipped { border-left-color: #f59e0b; }
+        .status-delivered { border-left-color: #10b981; }
+        
+        .order-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        .badge { padding: 4px 10px; border-radius: 12px; font-size: 0.85rem; font-weight: bold; text-transform: uppercase;}
+        
+        .badge-pending { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+        .badge-shipped { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+        .badge-delivered { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Real-Time Orders Pipeline</h2>
+        <div id="connection-status" style="color: #94a3b8;">Initiating connection...</div>
+        <div id="orders-list">
+            <!-- Orders will be injected here automatically -->
+        </div>
+    </div>
+
+    <script>
+        const eventSource = new EventSource('http://localhost:8000/api/v1/orders/stream');
+        const statusDiv = document.getElementById('connection-status');
+        const ordersList = document.getElementById('orders-list');
+
+        eventSource.onopen = () => {
+            statusDiv.textContent = '🟢 Connected: Listening to PostgreSQL WAL Stream';
+            statusDiv.style.color = '#10b981';
+        };
+
+        eventSource.onerror = () => {
+            statusDiv.textContent = '🔴 Disconnected: Attempting to reconnect via exponential backoff...';
+            statusDiv.style.color = '#ef4444';
+        };
+
+        eventSource.onmessage = (event) => {
+            const payload = JSON.parse(event.data);
+            if (!payload.change) return;
+
+            payload.change.forEach(mutation => {
+                // Determine the correct data payload based on insert vs update
+                const rowData = mutation.kind === 'delete' ? mutation.oldkeys : (mutation.columnnames.reduce((acc, col, idx) => {
+                    acc[col] = mutation.columnvalues[idx];
+                    return acc;
+                }, {}));
+
+                const orderId = `order-${rowData.id}`;
+                let existingCard = document.getElementById(orderId);
+
+                if (mutation.kind === 'delete' && existingCard) {
+                    existingCard.remove();
+                    return;
+                }
+
+                if (existingCard) {
+                    // Update existing DOM element
+                    existingCard.className = `order-card status-${rowData.status}`;
+                    existingCard.querySelector('.badge').className = `badge badge-${rowData.status}`;
+                    existingCard.querySelector('.badge').textContent = rowData.status;
+                } else {
+                    // Create new DOM element
+                    const card = document.createElement('div');
+                    card.id = orderId;
+                    card.className = `order-card status-${rowData.status}`;
+                    card.innerHTML = `
+                        <div class="order-header">
+                            <strong>Order #${rowData.id} - ${rowData.customer_name}</strong>
+                            <span class="badge badge-${rowData.status}">${rowData.status}</span>
+                        </div>
+                        <p>Product: ${rowData.product_name}</p>
+                    `;
+                    ordersList.prepend(card);
+                }
+            });
+        };
+    </script>
+</body>
+</html>
