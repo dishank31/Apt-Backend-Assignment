@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from config import settings
 from cdc_worker import CDCWorker
 from database.connection import init_pool, close_pool
+from routes.orders import router as orders_router
 
 # ── Logging ──────────────────────────────────────────────────────
 
@@ -75,6 +76,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount REST API routes
+app.include_router(orders_router)
 
 
 # ── Endpoints ────────────────────────────────────────────────────
