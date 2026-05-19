@@ -1,4 +1,11 @@
+# Core
 fastapi==0.110.0
 uvicorn==0.28.0
-psycopg[binary,pool]==3.1.18
-async-timeout==4.0.3
+
+# Database
+psycopg[binary]==3.1.18
+psycopg-pool==3.2.1
+
+# Configuration
+pydantic-settings==2.2.1
+python-dotenv==1.0.1
