@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # ── PostgreSQL with Logical Replication ────────
   postgres:
     image: postgres:15-alpine
     container_name: orders_db_realtime
@@ -10,7 +11,49 @@ services:
       POSTGRES_DB: orders_db
     ports:
       - "5432:5432"
-    # CRITICAL: Enables logical decoding for Change Data Capture
-    command: postgres -c wal_level=logical -c max_replication_slots=4 -c max_wal_senders=4
+    # Enable WAL logical decoding for Change Data Capture
+    command: >
+      postgres
+        -c wal_level=logical
+        -c max_replication_slots=4
+        -c max_wal_senders=4
     volumes:
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── FastAPI Backend ───────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: orders_backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/orders_db
+      REPLICATION_SLOT_NAME: orders_realtime_slot
+      LOG_LEVEL: INFO
+      CORS_ORIGINS: "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Static Frontend (Nginx) ──────────────────
+  frontend:
+    image: nginx:alpine
+    container_name: orders_frontend
+    ports:
+      - "3000:80"
+    volumes:
+      - ../frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
