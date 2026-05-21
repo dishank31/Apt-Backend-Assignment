@@ -1,38 +1,62 @@
 # API Reference
 
-Base URL: `http://localhost:8000`
+This document outlines the REST boundaries and the Server-Sent Events (SSE) stream for the Real-Time Order Tracking system.
+
+> **Base URL:** `http://localhost:8000`  
+> **Interactive Documentation:** Available at `/docs` (Swagger UI) or `/redoc` (ReDoc) when the server is running.
 
 ---
 
-## Health Check
+## 📡 Real-Time Stream (SSE)
 
-```
-GET /health
+### `GET /api/v1/orders/stream`
+Establishes a persistent Server-Sent Events connection. The server pushes Change Data Capture (CDC) events instantly as they occur in the database.
+
+**Headers Required:**
+```http
+Accept: text/event-stream
 ```
 
-**Response** `200 OK`
+**Payload Schema (Event):**
+The stream yields JSON payloads prefixed with `data: `.
+
 ```json
-{
-  "status": "operational",
-  "cdc": {
-    "active_listeners": 2,
-    "messages_processed": 47,
-    "broadcasts_sent": 12
-  }
+data: {
+  "change": [
+    {
+      "kind": "insert",
+      "table": "orders",
+      "columnnames": ["id", "customer_name", "product_name", "status", "updated_at"],
+      "columnvalues": [3, "Alice", "Widget", "pending", "2026-05-19T13:00:00"]
+    }
+  ]
 }
 ```
 
+> **Note:** To prevent proxy timeouts, the server sends a `: keep-alive` comment ping every second when idle.
+
+**Integration Example (JavaScript):**
+```javascript
+const eventSource = new EventSource('http://localhost:8000/api/v1/orders/stream');
+
+eventSource.onmessage = (event) => {
+  const cdcPayload = JSON.parse(event.data);
+  console.log('Database mutated:', cdcPayload);
+};
+```
+
 ---
 
-## Orders
+## 📦 Orders Resource
 
-### List All Orders
+### `GET /api/v1/orders`
+Retrieves a paginated list of all orders, ordered by the most recently updated.
 
-```
-GET /api/v1/orders
-```
+**Query Parameters:**
+- `limit` (integer): Maximum orders to return (default: 100, max: 500).
+- `offset` (integer): Number of orders to skip (default: 0).
 
-**Response** `200 OK`
+**Response:** `200 OK`
 ```json
 [
   {
@@ -45,117 +69,61 @@ GET /api/v1/orders
 ]
 ```
 
----
+### `POST /api/v1/orders`
+Creates a new order in the database.
 
-### Get Single Order
-
-```
-GET /api/v1/orders/{id}
-```
-
-**Response** `200 OK` — Order object
-**Response** `404 Not Found` — `{"detail": "Order 99 not found"}`
-
----
-
-### Create Order
-
-```
-POST /api/v1/orders
-Content-Type: application/json
-
-{
-  "customer_name": "Dishank Gandhi",
-  "product_name": "MacBook Pro",
-  "status": "pending"     // optional, defaults to "pending"
-}
-```
-
-**Response** `201 Created`
+**Request Body:**
 ```json
 {
-  "id": 2,
-  "customer_name": "Dishank Gandhi",
+  "customer_name": "Alice",
   "product_name": "MacBook Pro",
-  "status": "pending",
-  "updated_at": "2026-05-19T12:30:00"
+  "status": "pending" 
 }
 ```
+*(Note: `status` is optional and defaults to `"pending"`)*
 
-**Validation Errors** `422 Unprocessable Entity`
-- `customer_name`: required, 1-100 chars
-- `product_name`: required, 1-100 chars
-- `status`: must be `pending`, `shipped`, or `delivered`
+**Response:** `201 Created`
+**Errors:** `422 Unprocessable Entity` (Failed validation: missing fields or invalid status).
 
----
+### `PATCH /api/v1/orders/{id}`
+Partially updates an existing order.
 
-### Update Order (Partial)
-
-```
-PATCH /api/v1/orders/{id}
-Content-Type: application/json
-
+**Request Body:**
+```json
 {
   "status": "shipped"
 }
 ```
 
-Only provided fields are updated (PATCH semantics).
+**Response:** `200 OK` (Returns the updated order object).  
+**Errors:** `404 Not Found` (Order ID does not exist), `400 Bad Request` (Empty payload).
 
-**Response** `200 OK` — Updated order object
-**Response** `400 Bad Request` — Empty body
-**Response** `404 Not Found` — Order doesn't exist
+### `DELETE /api/v1/orders/{id}`
+Permanently deletes an order from the database.
 
----
-
-### Delete Order
-
-```
-DELETE /api/v1/orders/{id}
-```
-
-**Response** `204 No Content`
-**Response** `404 Not Found` — Order doesn't exist
+**Response:** `204 No Content`  
+**Errors:** `404 Not Found` (Order ID does not exist).
 
 ---
 
-## SSE Stream (Real-Time)
+## 🩺 System Health
 
+### `GET /health`
+Liveness probe providing operational metrics for the API and CDC pipeline.
+
+**Response:** `200 OK`
+```json
+{
+  "status": "operational",
+  "uptime_seconds": 120.5,
+  "database": {
+    "connected": true,
+    "last_error": null
+  },
+  "cdc": {
+    "active_listeners": 2,
+    "messages_processed": 47,
+    "broadcasts_sent": 12
+  }
+}
 ```
-GET /api/v1/orders/stream
-Accept: text/event-stream
-```
-
-Establishes a long-lived Server-Sent Events connection. The server pushes CDC events as they occur.
-
-**Event Format:**
-```
-data: {"change":[{"kind":"insert","table":"orders","columnnames":["id","customer_name","product_name","status","updated_at"],"columnvalues":[3,"Alice","Widget","pending","2026-05-19T13:00:00"]}]}
-```
-
-**Keep-alive** (sent every ~1 second when idle):
-```
-: keep-alive
-```
-
-### Browser Usage
-```javascript
-const es = new EventSource('http://localhost:8000/api/v1/orders/stream');
-es.onmessage = (event) => {
-  const payload = JSON.parse(event.data);
-  console.log('CDC event:', payload);
-};
-```
-
-### cURL Usage
-```bash
-curl -N http://localhost:8000/api/v1/orders/stream
-```
-
----
-
-## Interactive Docs
-
-FastAPI auto-generates an interactive API playground:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc

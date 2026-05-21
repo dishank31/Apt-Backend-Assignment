@@ -1,42 +1,46 @@
 # Architecture Deep Dive
 
-## Change Data Capture (CDC) Pipeline
-
-This document explains the internal mechanics of how a database mutation flows from PostgreSQL to the browser in real time.
+This document details the internal mechanics of the Change Data Capture (CDC) pipeline, outlining how database mutations flow from PostgreSQL to connected clients in real-time.
 
 ---
 
-## Sequence: Order Creation → Client Notification
+## 🔄 System Flow: Order Mutation to Client Notification
 
+The pipeline guarantees that any change to the database—whether initiated by the API, a migration script, or a raw SQL query—is captured and broadcasted.
+
+```mermaid
+sequenceDiagram
+    participant C as Client (Browser)
+    participant API as FastAPI (REST)
+    participant DB as PostgreSQL
+    participant CDC as CDC Worker
+    participant SSE as SSE Endpoint
+    
+    C->>API: POST /api/v1/orders
+    API->>DB: INSERT INTO orders...
+    DB-->>API: 201 Created
+    API-->>C: Response Body
+    
+    Note over DB: Write-Ahead Log (WAL) Updated
+    
+    loop Every 100ms
+        CDC->>DB: Poll wal2json slot
+    end
+    DB-->>CDC: JSON Payload (Insert)
+    
+    CDC->>CDC: Fan-out to all active client asyncio.Queues
+    
+    CDC->>SSE: queue.put(payload)
+    SSE-->>C: SSE data: {...}
 ```
-Client (Browser)          FastAPI                CDC Worker          PostgreSQL
-      │                      │                      │                    │
-      │  POST /orders        │                      │                    │
-      │─────────────────────>│                      │                    │
-      │                      │  INSERT INTO orders   │                    │
-      │                      │──────────────────────────────────────────>│
-      │                      │                      │                    │
-      │  201 Created         │                      │    WAL entry       │
-      │<─────────────────────│                      │    written         │
-      │                      │                      │                    │
-      │                      │                      │  poll slot (100ms) │
-      │                      │                      │───────────────────>│
-      │                      │                      │                    │
-      │                      │                      │  JSON payload      │
-      │                      │                      │<───────────────────│
-      │                      │                      │                    │
-      │                      │  queue.put(payload)   │                    │
-      │                      │<─────────────────────│                    │
-      │                      │                      │                    │
-      │  SSE: data: {...}    │                      │                    │
-      │<─────────────────────│                      │                    │
-      │                      │                      │                    │
-```
 
-## WAL Payload Format (wal2json)
+---
 
-When an `INSERT` occurs on the `orders` table, the replication slot outputs:
+## 🗄️ WAL Payload Format
 
+The logical replication slot decodes binary WAL entries into structured JSON via the `wal2json` plugin.
+
+**Example `INSERT` Payload:**
 ```json
 {
   "change": [
@@ -45,37 +49,21 @@ When an `INSERT` occurs on the `orders` table, the replication slot outputs:
       "schema": "public",
       "table": "orders",
       "columnnames": ["id", "customer_name", "product_name", "status", "updated_at"],
-      "columntypes": ["integer", "character varying(100)", "character varying(100)", "character varying(20)", "timestamp without time zone"],
-      "columnvalues": [1, "Dishank Gandhi", "HP Victus Gaming Laptop", "pending", "2026-05-19 12:00:00"]
+      "columnvalues": [1, "John Doe", "MacBook Pro", "pending", "2026-05-19 12:00:00"]
     }
   ]
 }
 ```
 
-For `UPDATE`:
+**Example `UPDATE` Payload:**
+Updates include the new values and the primary key (`oldkeys`) to identify the mutated row.
 ```json
 {
   "change": [
     {
       "kind": "update",
-      "schema": "public",
       "table": "orders",
-      "columnnames": ["id", "customer_name", "product_name", "status", "updated_at"],
-      "columnvalues": [1, "Dishank Gandhi", "HP Victus Gaming Laptop", "shipped", "2026-05-19 12:05:00"],
-      "oldkeys": { "keynames": ["id"], "keytypes": ["integer"], "keyvalues": [1] }
-    }
-  ]
-}
-```
-
-For `DELETE`:
-```json
-{
-  "change": [
-    {
-      "kind": "delete",
-      "schema": "public",
-      "table": "orders",
+      "columnvalues": [1, "John Doe", "MacBook Pro", "shipped", "2026-05-19 12:05:00"],
       "oldkeys": { "keynames": ["id"], "keytypes": ["integer"], "keyvalues": [1] }
     }
   ]
@@ -84,71 +72,37 @@ For `DELETE`:
 
 ---
 
-## Fan-Out Architecture
+## 🏛️ Architectural Decision Records (ADRs)
 
-Each SSE client gets its own `asyncio.Queue`:
+### 1. WAL Logical Decoding vs. Triggers/NOTIFY
+- **Decision:** Use `wal_level=logical` and `wal2json` instead of SQL Triggers and `pg_notify`.
+- **Rationale:** 
+  - `NOTIFY` has a hard 8KB payload limit, which complex rows can easily exceed.
+  - Triggers execute synchronously during the transaction, slowing down database writes. WAL decoding is asynchronous.
+  - Replication slots track read positions, ensuring zero data loss if the Python worker temporarily crashes.
 
-```
-                    ┌──── Queue ──── Client A (SSE)
-                    │
-CDC Worker ────────├──── Queue ──── Client B (SSE)
-                    │
-                    └──── Queue ──── Client C (SSE)
-```
+### 2. Server-Sent Events (SSE) vs. WebSockets
+- **Decision:** Use SSE for the real-time client transport.
+- **Rationale:**
+  - Order tracking is a strictly **unidirectional** data flow (Server to Client).
+  - SSE uses standard HTTP, avoiding complex protocol handshakes, making it highly compatible with CDN and proxy configurations.
+  - Browsers natively support SSE with the `EventSource` API, providing automatic reconnection logic out of the box.
 
-**Why per-client queues?**
-- A slow consumer doesn't block others
-- Clean disconnect handling (discard queue on client leave)
-- No shared mutable state between client handlers
-
----
-
-## PostgreSQL Configuration for CDC
-
-The following PostgreSQL settings are required:
-
-```sql
--- Enable logical decoding (required for wal2json)
-ALTER SYSTEM SET wal_level = 'logical';
-
--- Allow replication slots to be created
-ALTER SYSTEM SET max_replication_slots = 4;
-
--- Allow WAL sender processes
-ALTER SYSTEM SET max_wal_senders = 4;
-```
-
-These are set via Docker Compose command flags for convenience.
+### 3. Fan-out via Isolated Queues
+- **Decision:** Each connected client receives a dedicated `asyncio.Queue` populated by `asyncio.gather()`.
+- **Rationale:** 
+  - Prevents the "Slow Consumer Problem." If one client has a poor network connection, their specific queue fills up and drops events, without blocking the CDC worker from delivering payloads to healthy clients.
 
 ---
 
-## Scalability Analysis
+## 🚀 Scalability Trajectory
 
-### Current Architecture (Single Instance)
+The current architecture is optimized for a single-node deployment supporting thousands of concurrent connections. To scale horizontally, the system is designed to evolve in clear steps.
 
-- **Throughput**: ~1000 mutations/sec with 100 concurrent SSE clients
-- **Latency**: ~100-200ms from DB write to client delivery
-- **Bottleneck**: Single CDC worker, in-memory fan-out
+### Step 1: Microservice Decoupling (Redis Pub/Sub)
+When scaling FastAPI to multiple containers, the single CDC worker cannot maintain in-memory queues for clients connected to other instances.
+- **Solution:** The CDC worker publishes the `wal2json` payload to a Redis Pub/Sub channel. Multiple FastAPI instances subscribe to this channel and fan-out updates to their locally connected SSE clients.
 
-### Scale Step 1: Redis Pub/Sub
-
-```
-CDC Worker ──► Redis Pub/Sub ──► API Instance 1 ──► SSE Clients
-                              ──► API Instance 2 ──► SSE Clients
-                              ──► API Instance 3 ──► SSE Clients
-```
-
-- Decouple CDC worker from API servers
-- Any number of API instances can subscribe to Redis channels
-- Each instance handles its own SSE clients
-
-### Scale Step 2: Debezium + Kafka
-
-```
-PostgreSQL ──► Debezium ──► Kafka ──► Consumer Groups ──► API Instances
-```
-
-- **Guaranteed delivery** via Kafka offset tracking
-- **Replay capability** — new consumers can read from beginning
-- **Multi-consumer** — different services can independently consume the same stream
-- **Ordering guarantees** — Kafka partitions maintain order by key
+### Step 2: Event Sourcing & Guaranteed Delivery (Kafka)
+When system demands require guaranteed delivery, replayability, and integration with data lakes.
+- **Solution:** Replace the Python polling worker with **Debezium**, pushing WAL events directly into **Apache Kafka**. Microservices consume specific Kafka topics via consumer groups, ensuring strictly ordered, at-least-once delivery.
