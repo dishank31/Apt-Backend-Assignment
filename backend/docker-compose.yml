@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ── PostgreSQL with Logical Replication ────────
   postgres:
@@ -27,6 +25,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
 
   # ── FastAPI Backend ───────────────────────────
   backend:
