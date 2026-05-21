@@ -13,11 +13,11 @@ BEGIN
     NEW.updated_at = now();
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER update_orders_modtime
 BEFORE UPDATE ON orders
-FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
+FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 
 -- Seed data
 INSERT INTO orders (customer_name, product_name, status) 
