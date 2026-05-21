@@ -26,14 +26,19 @@ router = APIRouter(prefix="/api/v1/orders", tags=["Orders"])
 
 
 @router.get("", response_model=list[OrderResponse])
-async def list_orders():
-    """Retrieve all orders, most recently updated first."""
+async def list_orders(limit: int = 100, offset: int = 0):
+    """Retrieve all orders, most recently updated first.
+
+    Supports pagination via `limit` and `offset` query parameters.
+    """
     pool = get_pool()
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT id, customer_name, product_name, status, updated_at "
-                "FROM orders ORDER BY updated_at DESC"
+                "FROM orders ORDER BY updated_at DESC "
+                "LIMIT %s OFFSET %s",
+                (limit, offset),
             )
             rows = await cur.fetchall()
 
