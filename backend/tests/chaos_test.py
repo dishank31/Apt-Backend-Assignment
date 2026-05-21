@@ -218,12 +218,12 @@ def test_memory_leak():
 # ── Test 3: Data Tsunami ─────────────────────────────────────────
 
 def test_data_tsunami():
-    """Insert 100 orders rapidly and verify they all arrived."""
+    """Insert 10000 orders rapidly and verify they all arrived."""
     print("\n" + "=" * 60)
     print("TEST 3: Data Tsunami (100 rapid inserts)")
     print("=" * 60)
 
-    NUM_ORDERS = 100
+    NUM_ORDERS = 10000
 
     # Step 1: Record baseline
     print("\n[1/3] Recording baseline order count...")

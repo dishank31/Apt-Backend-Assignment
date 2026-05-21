@@ -1,8 +1,13 @@
 """Quick script to terminate stale slot consumers."""
+import sys
+from pathlib import Path
 import psycopg
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from config import settings
+
 conn = psycopg.connect(
-    "postgresql://postgres:password@localhost:5433/orders_db",
+    settings.database_url,
     autocommit=True,
 )
 cur = conn.cursor()

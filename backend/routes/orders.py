@@ -15,7 +15,7 @@ worker picks up and broadcasts to SSE clients automatically.
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from database.connection import get_pool
 from models import OrderCreate, OrderUpdate, OrderResponse
@@ -26,7 +26,10 @@ router = APIRouter(prefix="/api/v1/orders", tags=["Orders"])
 
 
 @router.get("", response_model=list[OrderResponse])
-async def list_orders(limit: int = 100, offset: int = 0):
+async def list_orders(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
     """Retrieve all orders, most recently updated first.
 
     Supports pagination via `limit` and `offset` query parameters.

@@ -28,7 +28,7 @@ if sys.platform == "win32":
 
 from config import settings
 from cdc_worker import CDCWorker
-from database.connection import init_pool, close_pool
+from database.connection import init_pool, close_pool, get_pool
 from routes.orders import router as orders_router
 
 # -- Logging --
@@ -100,16 +100,36 @@ app.add_middleware(
 
 # -- Endpoints --
 
+async def _database_health() -> dict:
+    """Verify that the API can check out a connection and query PostgreSQL."""
+    try:
+        pool = get_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT 1")
+                await cur.fetchone()
+        return {"connected": True, "last_error": None}
+    except Exception as exc:
+        logger.warning("Database health check failed: %s", exc)
+        return {"connected": False, "last_error": str(exc)}
+
+
 @app.get("/health")
 async def health_check():
     """Liveness probe with detailed operational metrics.
 
-    Returns CDC connection status, active listener count with queue depths,
-    and server uptime. Use this to verify client cleanup (Test 2).
+    Returns API uptime, database reachability, CDC connection status,
+    active listener count, and listener queue depths.
     """
+    try:
+        database = await asyncio.wait_for(_database_health(), timeout=2.0)
+    except asyncio.TimeoutError:
+        database = {"connected": False, "last_error": "Database health check timed out"}
+
     return {
         "status": "operational",
         "uptime_seconds": round(time.monotonic() - _server_start_time, 1),
+        "database": database,
         "cdc": cdc_worker.metrics,
     }
 

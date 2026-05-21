@@ -14,15 +14,15 @@ from main import app
 from database.connection import init_pool, close_pool
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def event_loop():
-    """Override the default event loop for session-scoped async fixtures."""
+    """Override the default event loop for async fixtures."""
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def client():
     """Provide an async HTTP client bound to the FastAPI app.
 
