@@ -17,10 +17,14 @@ Start the entire stack (PostgreSQL, FastAPI Backend, Nginx Frontend) in just **3
 git clone https://github.com/dishank31/Apt-Backend-Assignment.git
 cd Apt-Backend-Assignment/backend
 
-# 2. Build and start the containers
+# 2. Configure Environment Variables
+cp .env.example .env
+# (Optional) Open .env and update the POSTGRES_PASSWORD if needed
+
+# 3. Build and start the containers
 docker-compose up --build -d
 
-# 3. View the live dashboard
+# 4. View the live dashboard
 # Open http://localhost:3000 in your browser
 ```
 
