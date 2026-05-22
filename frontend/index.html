@@ -30,19 +30,24 @@
             <div class="stat-card delivered"><div class="value" id="stat-delivered">0</div><div class="label">Delivered</div></div>
         </div>
 
-        <div class="create-form">
+        <form class="create-form" onsubmit="event.preventDefault(); createOrder();">
             <h2>Create New Order</h2>
             <div class="form-row">
-                <input type="text" id="inp-customer" placeholder="Customer name" maxlength="100">
-                <input type="text" id="inp-product" placeholder="Product name" maxlength="100">
+                <label for="inp-customer" class="sr-only">Customer Name</label>
+                <input type="text" id="inp-customer" placeholder="Customer name" maxlength="100" required>
+                
+                <label for="inp-product" class="sr-only">Product Name</label>
+                <input type="text" id="inp-product" placeholder="Product name" maxlength="100" required>
+                
+                <label for="inp-status" class="sr-only">Status</label>
                 <select id="inp-status">
                     <option value="pending">Pending</option>
                     <option value="shipped">Shipped</option>
                     <option value="delivered">Delivered</option>
                 </select>
-                <button class="btn-create" id="btn-create" onclick="createOrder()">+ Create Order</button>
+                <button type="submit" class="btn-create" id="btn-create">+ Create Order</button>
             </div>
-        </div>
+        </form>
 
         <h2 class="section-title">Live Orders</h2>
         <div class="table-wrap">

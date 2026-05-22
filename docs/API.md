@@ -69,6 +69,12 @@ Retrieves a paginated list of all orders, ordered by the most recently updated.
 ]
 ```
 
+### `GET /api/v1/orders/{id}`
+Retrieves a single order by its ID.
+
+**Response:** `200 OK` (Returns the order object)
+**Errors:** `404 Not Found` (Order ID does not exist).
+
 ### `POST /api/v1/orders`
 Creates a new order in the database.
 
@@ -80,7 +86,7 @@ Creates a new order in the database.
   "status": "pending" 
 }
 ```
-*(Note: `status` is optional and defaults to `"pending"`)*
+*(Note: `status` is optional and defaults to `"pending"`. `customer_name` and `product_name` have a maximum length of 100 characters. `status` must be `pending`, `shipped`, or `delivered`.)*
 
 **Response:** `201 Created`
 **Errors:** `422 Unprocessable Entity` (Failed validation: missing fields or invalid status).
@@ -121,9 +127,13 @@ Liveness probe providing operational metrics for the API and CDC pipeline.
     "last_error": null
   },
   "cdc": {
+    "connected": true,
     "active_listeners": 2,
     "messages_processed": 47,
-    "broadcasts_sent": 12
+    "broadcasts_sent": 12,
+    "uptime_seconds": 120.5,
+    "last_error": null,
+    "listener_queue_depths": [0, 0]
   }
 }
 ```

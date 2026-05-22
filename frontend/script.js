@@ -185,10 +185,18 @@
         }
 
         async function createOrder() {
+            const btn = document.getElementById('btn-create');
+            btn.disabled = true;
+            btn.textContent = 'Creating...';
             const cn = document.getElementById('inp-customer').value.trim();
             const pn = document.getElementById('inp-product').value.trim();
             const st = document.getElementById('inp-status').value;
-            if (!cn || !pn) { showToast('Please fill in all fields', 'info'); return; }
+            if (!cn || !pn) { 
+                showToast('Please fill in all fields', 'info'); 
+                btn.disabled = false;
+                btn.textContent = '+ Create Order';
+                return; 
+            }
             try {
                 const res = await fetch(API, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -199,6 +207,10 @@
                 document.getElementById('inp-product').value = '';
                 showToast(`Order created for ${cn}`, 'insert');
             } catch (e) { showToast('Failed to create order', 'delete'); }
+            finally {
+                btn.disabled = false;
+                btn.textContent = '+ Create Order';
+            }
         }
 
         async function updateStatus(id, status) {

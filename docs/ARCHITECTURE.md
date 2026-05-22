@@ -63,6 +63,7 @@ Updates include the new values and the primary key (`oldkeys`) to identify the m
     {
       "kind": "update",
       "table": "orders",
+      "columnnames": ["id", "customer_name", "product_name", "status", "updated_at"],
       "columnvalues": [1, "John Doe", "MacBook Pro", "shipped", "2026-05-19 12:05:00"],
       "oldkeys": { "keynames": ["id"], "keytypes": ["integer"], "keyvalues": [1] }
     }
@@ -89,7 +90,7 @@ Updates include the new values and the primary key (`oldkeys`) to identify the m
   - Browsers natively support SSE with the `EventSource` API, providing automatic reconnection logic out of the box.
 
 ### 3. Fan-out via Isolated Queues
-- **Decision:** Each connected client receives a dedicated `asyncio.Queue` populated by `asyncio.gather()`.
+- **Decision:** Each connected client receives a dedicated `asyncio.Queue` populated by a `put_nowait()` loop.
 - **Rationale:** 
   - Prevents the "Slow Consumer Problem." If one client has a poor network connection, their specific queue fills up and drops events, without blocking the CDC worker from delivering payloads to healthy clients.
 
